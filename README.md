@@ -1,6 +1,8 @@
 # mp3
 An optimized MP3 player with smooth/dynamic speed controls
 
+![thumbnail](https://github.com/Suikaaah/mp3/blob/main/thumbnail.png)
+
 ## Usage
 `cargo run --release -- <your mp3 folder>`
 
