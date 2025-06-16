@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
+colored = "3.0.0"
 rand = "0.9.1"
 sdl2 = { version = "0.37.0", features = ["ttf"] }
 symphonia = { version = "0.5.4", features = ["mp3"] }

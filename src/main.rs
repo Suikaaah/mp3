@@ -48,17 +48,20 @@ where
 
 fn practically_main() -> Result<(), String> {
     const TITLE: &str = "Suika's MP3 Player";
-    const WIDTH: u32 = 1000;
-    const HEIGHT: u32 = 250;
+    const WIDTH: u32 = 800;
+    const HEIGHT: u32 = 200;
     const SIZE: (u32, u32) = (WIDTH, HEIGHT);
-    const X_SPEED_ORIGIN: i32 = WIDTH as i32 * 2 / 5;
-    const X_VOLUME_ORIGIN: i32 = WIDTH as i32 / 4;
+    const HALF_HEIGHT: u32 = HEIGHT / 2;
+    const SPEED_ORIGIN: i32 = WIDTH as i32 * 2 / 5;
+    const VOLUME_ORIGIN: i32 = WIDTH as i32 / 4;
     const TRANSITION_DURATION: f32 = 0.3;
-    const CROSSHAIR: i32 = 8;
+    const CH_LENGTH: i32 = 8;
+    const CH_THICKNESS: u32 = 2;
     const COLOR_SPEED: Color = Color::RGB(0x00, 0x31, 0x61);
     const COLOR_VOLUME: Color = Color::RGB(0x00, 0x6A, 0x67);
     const WHITE: Color = Color::RGB(0xFF, 0xFF, 0xFF);
-    const HALF_HEIGHT: u32 = HEIGHT / 2;
+    const FONT_SIZE: u16 = 48;
+    const FF_INTENSITY: f32 = 32.0;
 
     let files = {
         let path = std::env::args().nth(1).ok_or(
@@ -76,8 +79,11 @@ fn practically_main() -> Result<(), String> {
 
     let mut files = files.iter();
     let mut load = |engine: &mut Engine, device: Option<AudioDevice<Playback>>| {
-        let pathbuf = files.next().ok_or("empty!")?;
-        let pathstr = pathbuf.to_str().unwrap_or("broken ahh filename");
+        let pathbuf = files.next().ok_or("queue is empty")?;
+        let pathstr = pathbuf
+            .file_name()
+            .and_then(|osstr| osstr.to_str())
+            .unwrap_or("<broken ahh filename>");
         let queue = files.len();
 
         engine.set_title(&format!("{TITLE} | Queue: {queue} | File: {pathstr}"))?;
@@ -90,12 +96,12 @@ fn practically_main() -> Result<(), String> {
     let mut engine = Engine::new(TITLE, SIZE)?;
 
     let ttf_context = sdl2::ttf::init().strerr()?;
-    let font = ttf_context.load_font("CascadiaMono.ttf", 64)?;
+    let font = ttf_context.load_font("CascadiaMono.ttf", FONT_SIZE)?;
 
     let mut device = load(&mut engine, None)?;
     let mut event_pump = engine.event_pump()?;
-    let mut s_speed = TimedSmooth::new(X_SPEED_ORIGIN as f32, TRANSITION_DURATION);
-    let mut s_volume = TimedSmooth::new(X_VOLUME_ORIGIN as f32, TRANSITION_DURATION);
+    let mut s_speed = TimedSmooth::new(SPEED_ORIGIN as f32, TRANSITION_DURATION);
+    let mut s_volume = TimedSmooth::new(VOLUME_ORIGIN as f32, TRANSITION_DURATION);
     let mut s_progress = TimedSmooth::new(0.0, TRANSITION_DURATION);
     let mut progress_prev = 0.0;
     let mut scroll = None;
@@ -139,8 +145,8 @@ fn practically_main() -> Result<(), String> {
                         Which::Volume => s_volume.shift_set(mouse_x as f32),
                     },
                     MouseButton::Right => match which {
-                        Which::Speed => s_speed.shift_set(X_SPEED_ORIGIN as f32),
-                        Which::Volume => s_volume.shift_set(X_VOLUME_ORIGIN as f32),
+                        Which::Speed => s_speed.shift_set(SPEED_ORIGIN as f32),
+                        Which::Volume => s_volume.shift_set(VOLUME_ORIGIN as f32),
                     },
                     _ => (),
                 },
@@ -153,15 +159,16 @@ fn practically_main() -> Result<(), String> {
             }
         }
 
-        let to_speed = (1.0025f32).powf(s_speed.interpolate() - X_SPEED_ORIGIN as f32);
+        let to_speed =
+            FF_INTENSITY.powf((s_speed.interpolate() - SPEED_ORIGIN as f32) / WIDTH as f32);
         let to_volume = s_volume.interpolate() / WIDTH as f32;
         let surface_speed = font
             .render(&format!("{to_speed:.2}x"))
-            .blended(Color::RGB(255, 255, 255))
+            .blended(WHITE)
             .strerr()?;
         let surface_volume = font
             .render(&format!("{:.1}%", to_volume * 100.0))
-            .blended(Color::RGB(255, 255, 255))
+            .blended(WHITE)
             .strerr()?;
 
         engine.clear();
@@ -186,34 +193,39 @@ fn practically_main() -> Result<(), String> {
         // crosshair for speed
         engine.draw_rect(
             Rect::new(
-                X_SPEED_ORIGIN - 2,
-                HALF_HEIGHT as i32 - CROSSHAIR,
-                2,
-                CROSSHAIR as u32,
+                SPEED_ORIGIN - CH_THICKNESS as i32,
+                HALF_HEIGHT as i32 - CH_LENGTH,
+                CH_THICKNESS,
+                CH_LENGTH as u32,
             ),
             WHITE,
         )?;
         engine.draw_rect(
             Rect::new(
-                X_SPEED_ORIGIN - CROSSHAIR,
-                HALF_HEIGHT as i32 - 2,
-                CROSSHAIR as u32,
-                2,
+                SPEED_ORIGIN - CH_LENGTH,
+                HALF_HEIGHT as i32 - CH_THICKNESS as i32,
+                CH_LENGTH as u32,
+                CH_THICKNESS,
             ),
             WHITE,
         )?;
 
         // crosshair for volume
         engine.draw_rect(
-            Rect::new(X_VOLUME_ORIGIN - 2, HALF_HEIGHT as i32, 2, CROSSHAIR as u32),
+            Rect::new(
+                VOLUME_ORIGIN - CH_THICKNESS as i32,
+                HALF_HEIGHT as i32,
+                CH_THICKNESS,
+                CH_LENGTH as u32,
+            ),
             WHITE,
         )?;
         engine.draw_rect(
             Rect::new(
-                X_VOLUME_ORIGIN - CROSSHAIR,
+                VOLUME_ORIGIN - CH_LENGTH,
                 HALF_HEIGHT as i32,
-                CROSSHAIR as u32,
-                2,
+                CH_LENGTH as u32,
+                CH_THICKNESS,
             ),
             WHITE,
         )?;
@@ -221,7 +233,12 @@ fn practically_main() -> Result<(), String> {
         engine.draw_surface(surface_speed, (0, 0))?;
         engine.draw_surface(surface_volume, (0, HALF_HEIGHT as i32))?;
         engine.draw_rect(
-            Rect::new(0, 0, (s_progress.interpolate() * WIDTH as f32) as u32, 2),
+            Rect::new(
+                0,
+                0,
+                (s_progress.interpolate() * WIDTH as f32) as u32,
+                CH_THICKNESS,
+            ),
             WHITE,
         )?;
 

@@ -1,4 +1,5 @@
 use chrono::Timelike;
+use colored::Colorize;
 use std::fmt::Display;
 
 pub enum Log {
@@ -12,13 +13,15 @@ pub fn log(kind: Log, msg: impl Display) {
     let h = now.hour();
     let m = now.minute();
     let s = now.second();
-    let hms = format!("{h:2}:{m:02}:{s:02}");
 
-    let str = match kind {
-        Log::Info => "INFO",
-        Log::Warning => "WARNING",
-        Log::Error => "ERROR",
-    };
+    let hms = format!("{h:2}:{m:02}:{s:02}").dimmed();
 
-    println!("[{hms}] {str:7} {msg}");
+    let name = match kind {
+        Log::Info => "I".green(),
+        Log::Warning => "W".yellow(),
+        Log::Error => "E".red(),
+    }
+    .bold();
+
+    println!("{name} {hms} {msg}");
 }
