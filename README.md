@@ -1,6 +1,11 @@
 # mp3
 An optimized MP3 player with smooth/dynamic speed controls
 
+## Usage
+`cargo run --release -- <your mp3 folder>`
+
+Note: Files will be collected recursively
+
 ## Build/Run
 ### Linux
 - Install `libsdl2-dev` and `libsdl2-ttf-dev`
