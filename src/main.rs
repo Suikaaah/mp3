@@ -3,47 +3,20 @@ mod log;
 mod playback;
 mod smooth;
 mod strerr;
+mod util;
 
 use engine::Engine;
 use log::{Log, log};
-use playback::Playback;
-use rand::seq::SliceRandom;
 use sdl2::{
-    audio::AudioDevice, event::Event, keyboard::Keycode, mouse::MouseButton, pixels::Color,
-    rect::Rect,
+    event::Event, image::InitFlag, keyboard::Keycode, mouse::MouseButton, pixels::Color, rect::Rect,
 };
 use smooth::{Smooth, TimedSmooth};
-use std::path::{Path, PathBuf};
 use strerr::Strerr;
 
 fn main() {
     if let Err(e) = practically_main() {
         log(Log::Error, e);
     }
-}
-
-fn collect_pathbufs<P>(path: P, extension: &str) -> Result<Vec<PathBuf>, String>
-where
-    P: AsRef<Path>,
-{
-    let body = |path: PathBuf| {
-        if path.is_file() {
-            path.extension()
-                .map(|str| str == extension)
-                .and_then(|ext_matched| if ext_matched { Some(vec![path]) } else { None })
-        } else if path.is_dir() {
-            collect_pathbufs(path, extension).ok()
-        } else {
-            None
-        }
-    };
-
-    Ok(std::fs::read_dir(path)
-        .strerr()?
-        .filter_map(|entry_result| entry_result.ok())
-        .filter_map(|entry| body(entry.path()))
-        .flatten()
-        .collect())
 }
 
 fn practically_main() -> Result<(), String> {
@@ -63,42 +36,14 @@ fn practically_main() -> Result<(), String> {
     const FONT_SIZE: u16 = 48;
     const FF_INTENSITY: f32 = 32.0;
 
-    let files = {
-        let path = std::env::args().nth(1).ok_or(
-            "please provide a folder containing mp3 files, which will be scanned recursively",
-        )?;
-
-        log(Log::Info, "collecting mp3 files... this might take a while");
-        let mut files = collect_pathbufs(path, "mp3")?;
-        let mut rng = rand::rng();
-        files.shuffle(&mut rng);
-        files
-    };
-
-    log(Log::Info, format!("{} mp3 file(s) found", files.len()));
-
-    let mut files = files.iter();
-    let mut load = |engine: &mut Engine, device: Option<AudioDevice<Playback>>| {
-        let pathbuf = files.next().ok_or("queue is empty")?;
-        let pathstr = pathbuf
-            .file_name()
-            .and_then(|osstr| osstr.to_str())
-            .unwrap_or("<broken ahh filename>");
-        let queue = files.len();
-
-        engine.set_title(&format!("{TITLE} | Queue: {queue} | File: {pathstr}"))?;
-        engine.load_device(
-            pathbuf,
-            device.map(|d| d.close_and_get_callback().take_buffer()),
-        )
-    };
-
-    let mut engine = Engine::new(TITLE, SIZE)?;
+    let mut engine = Engine::new(String::from(TITLE), SIZE)?;
 
     let ttf_context = sdl2::ttf::init().strerr()?;
-    let font = ttf_context.load_font("CascadiaMono.ttf", FONT_SIZE)?;
+    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
+    let font = ttf_context.load_font("D:\\Rust\\mp3\\CascadiaMono.ttf", FONT_SIZE)?;
+    let texture_creator = engine.texture_creator();
 
-    let mut device = load(&mut engine, None)?;
+    let mut texture = engine.load_next(&texture_creator)?;
     let mut event_pump = engine.event_pump()?;
     let mut s_speed = TimedSmooth::new(SPEED_ORIGIN as f32, TRANSITION_DURATION);
     let mut s_volume = TimedSmooth::new(VOLUME_ORIGIN as f32, TRANSITION_DURATION);
@@ -138,7 +83,7 @@ fn practically_main() -> Result<(), String> {
                 Event::KeyDown {
                     keycode: Some(Keycode::SPACE),
                     ..
-                } => device = load(&mut engine, Some(device))?,
+                } => texture = engine.load_next(&texture_creator)?,
                 Event::MouseButtonDown { mouse_btn, .. } => match mouse_btn {
                     MouseButton::Left if !mouse_right => match which {
                         Which::Speed => s_speed.shift_set(mouse_x as f32),
@@ -159,19 +104,24 @@ fn practically_main() -> Result<(), String> {
             }
         }
 
-        let to_speed =
+        let target_speed =
             FF_INTENSITY.powf((s_speed.interpolate() - SPEED_ORIGIN as f32) / WIDTH as f32);
-        let to_volume = s_volume.interpolate() / WIDTH as f32;
+        let target_volume = s_volume.interpolate() / WIDTH as f32;
         let surface_speed = font
-            .render(&format!("{to_speed:.2}x"))
+            .render(&format!("{target_speed:.2}x"))
             .blended(WHITE)
             .strerr()?;
         let surface_volume = font
-            .render(&format!("{:.1}%", to_volume * 100.0))
+            .render(&format!("{:.1}%", target_volume * 100.0))
             .blended(WHITE)
             .strerr()?;
 
         engine.clear();
+
+        // background
+        if let Some(texture) = texture.as_ref() {
+            engine.draw_texture_fit(texture, SIZE)?;
+        }
 
         // rectangle for speed
         engine.draw_rect(
@@ -230,38 +180,53 @@ fn practically_main() -> Result<(), String> {
             WHITE,
         )?;
 
-        engine.draw_surface(surface_speed, (0, 0))?;
-        engine.draw_surface(surface_volume, (0, HALF_HEIGHT as i32))?;
-        engine.draw_rect(
-            Rect::new(
-                0,
-                0,
-                (s_progress.interpolate() * WIDTH as f32) as u32,
-                CH_THICKNESS,
-            ),
-            WHITE,
-        )?;
+        engine.draw_surface(&surface_speed, (0, 0), &texture_creator)?;
+        engine.draw_surface(&surface_volume, (0, HALF_HEIGHT as i32), &texture_creator)?;
 
+        // everything that requires the device gets the job done here
         let (go_next, progress) = {
-            let mut device = device.lock();
-            device.speed.set(to_speed);
-            device.volume.set(to_volume);
-            if let Some(y) = scroll {
-                if let Err(e) = device.skip(-y) {
-                    log(Log::Warning, format!("skip failed ({e})"));
+            if let Some(mut device) = engine.lock_device() {
+                device.speed.set(target_speed);
+                device.volume.set(target_volume);
+
+                // Symphonia has a bug
+                // seeking causes a panic when total_frames is unavailable
+                if let (Some(y), Some(_)) = (scroll, device.total_frames) {
+                    if let Err(e) = device.seek(-y) {
+                        log(Log::Warning, format!("seek failed ({e})"));
+                    }
                 }
+
+                scroll = None;
+
+                (device.end, device.progress())
+            } else {
+                (false, None)
             }
-            scroll = None;
-            (device.end, device.progress())
         };
+
+        if progress.is_some() {
+            engine.draw_rect(
+                Rect::new(
+                    0,
+                    0,
+                    (s_progress.interpolate() * WIDTH as f32) as u32,
+                    CH_THICKNESS,
+                ),
+                WHITE,
+            )?;
+        }
+
+        let progress = progress.unwrap_or(0.0);
 
         if progress != progress_prev {
             s_progress.shift_set(progress);
         }
+
         progress_prev = progress;
 
         if go_next {
-            device = load(&mut engine, Some(device))?;
+            texture = engine.load_next(&texture_creator)?;
         }
 
         engine.present();

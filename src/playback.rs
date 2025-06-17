@@ -22,14 +22,14 @@ pub struct Playback {
     pub channels: usize,
     offset: usize,
     position: f64,
-    total_frames: u64,
+    pub total_frames: Option<u64>,
     pub speed: Smooth,
     pub volume: Smooth,
     pub end: bool,
 }
 
 impl Playback {
-    const SKIP_SECS: f64 = 5.0;
+    const SEEK_SECS: f64 = 5.0;
 
     pub fn new<P>(path: P, buffer: Option<Box<[Sample]>>) -> Result<Self, String>
     where
@@ -56,7 +56,17 @@ impl Playback {
 
         let sample_rate = track.codec_params.sample_rate.ok_or("no sample rate")?;
         let channels = track.codec_params.channels.ok_or("no channels")?.count();
-        let total_frames = track.codec_params.n_frames.ok_or("no frames")?;
+        let total_frames = track
+            .codec_params
+            .n_frames
+            .and_then(|n| if n == 0 { None } else { Some(n) });
+
+        if total_frames.is_none() {
+            log(
+                Log::Warning,
+                "the length of this song is unknown (seek disabled)",
+            );
+        }
 
         let decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &Default::default())
@@ -161,15 +171,16 @@ impl Playback {
         }
     }
 
-    pub const fn progress(&self) -> f32 {
-        (self.position / self.total_frames as f64) as f32
+    pub fn progress(&self) -> Option<f32> {
+        self.total_frames
+            .map(|total_frames| (self.position / total_frames as f64) as f32)
     }
 
     pub fn take_buffer(self) -> Box<[Sample]> {
         self.buffer
     }
 
-    fn skip_impl(&mut self, seconds: f64) -> Result<(), String> {
+    fn seek_impl(&mut self, seconds: f64) -> Result<(), String> {
         self.position = (self.position + seconds * self.sample_rate as f64).max(0.0);
         self.offset = self.position as usize * self.channels;
         let seconds = (self.position / self.sample_rate as f64) as u64;
@@ -189,8 +200,8 @@ impl Playback {
         Ok(())
     }
 
-    pub fn skip(&mut self, mult: i32) -> Result<(), String> {
-        self.skip_impl(Self::SKIP_SECS * mult as f64)
+    pub fn seek(&mut self, mult: i32) -> Result<(), String> {
+        self.seek_impl(Self::SEEK_SECS * mult as f64)
     }
 }
 
