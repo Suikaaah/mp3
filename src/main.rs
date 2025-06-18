@@ -21,8 +21,8 @@ fn main() {
 
 fn practically_main() -> Result<(), String> {
     const TITLE: &str = "Suika's MP3 Player";
-    const WIDTH: u32 = 800;
-    const HEIGHT: u32 = 200;
+    const WIDTH: u32 = 1200;
+    const HEIGHT: u32 = 300;
     const SIZE: (u32, u32) = (WIDTH, HEIGHT);
     const HALF_HEIGHT: u32 = HEIGHT / 2;
     const SPEED_ORIGIN: i32 = WIDTH as i32 * 2 / 5;
@@ -40,7 +40,7 @@ fn practically_main() -> Result<(), String> {
 
     let ttf_context = sdl2::ttf::init().strerr()?;
     let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-    let font = ttf_context.load_font("D:\\Rust\\mp3\\CascadiaMono.ttf", FONT_SIZE)?;
+    let font = ttf_context.load_font("CascadiaMono.ttf", FONT_SIZE)?;
     let texture_creator = engine.texture_creator();
 
     let mut texture = engine.load_next(&texture_creator)?;

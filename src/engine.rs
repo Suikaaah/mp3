@@ -8,7 +8,7 @@ use sdl2::{
     EventPump, Sdl,
     audio::{AudioDevice, AudioDeviceLockGuard, AudioSpecDesired},
     image::LoadSurface,
-    pixels::Color,
+    pixels::{Color, PixelFormatEnum},
     rect::Rect,
     render::{Canvas, Texture, TextureCreator},
     surface::Surface,
@@ -133,31 +133,25 @@ impl Engine {
         let path = self.files.first().ok_or("queue is empty").strerr()?;
         let texture = match path.parent().and_then(util::find_image) {
             Some(image_path) => {
-                let mut surface = Surface::from_file(image_path)?;
+                // the default format is broken, which can be resolved by converting it (dumb)
+                let mut surface =
+                    Surface::from_file(image_path)?.convert_format(PixelFormatEnum::RGBA8888)?;
                 let (width, height) = (surface.width(), surface.height());
-                let format = surface.pixel_format_enum();
 
-                match format.byte_size_per_pixel() {
-                    size @ (3 | 4) => {
-                        surface.with_lock_mut(|buffer| {
-                            for y in 0..height {
-                                for x in 0..width {
-                                    let uv = (y * width + x) as usize * size;
+                surface.with_lock_mut(|buffer| {
+                    for y in 0..height {
+                        for x in 0..width {
+                            let uv = (y * width + x) as usize * 4;
+                            let mul = (x as f32 / width as f32).powi(2);
 
-                                    for c in 0..3 {
-                                        let mul = 0.5 * (x as f32 / width as f32).powi(2);
-                                        buffer[uv + c] = (buffer[uv + c] as f32 * mul) as u8;
-                                    }
-                                }
+                            for c in 1..4 {
+                                buffer[uv + c] = (buffer[uv + c] as f32 * mul) as u8;
                             }
-                        });
-                        Some(surface.as_texture(texture_creator).strerr()?)
+                        }
                     }
-                    _ => {
-                        log(Log::Info, format!("unsupported image format: {format:?}"));
-                        None
-                    }
-                }
+                });
+
+                Some(surface.as_texture(texture_creator).strerr()?)
             }
             None => None,
         };
